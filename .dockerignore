@@ -1,0 +1,33 @@
+# 빌드 결과물
+build/
+target/
+*.jar
+*.war
+
+# IDE 파일
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# 로그
+*.log
+logs/
+
+# 임시 파일
+*.tmp
+*.temp
+
+# Docker 관련
+Dockerfile
+docker-compose*.yml
+.dockerignore
