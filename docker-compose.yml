@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: spring-boot-app:latest
+    image: docker-app:latest
     container_name: docker-container
     ports:
       - "8080:8080"
