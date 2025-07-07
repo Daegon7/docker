@@ -6,6 +6,7 @@ WORKDIR /app
 # Gradle 관련 파일 먼저 복사 (캐시 최적화)
 COPY build.gradle settings.gradle gradlew gradlew.bat /app/
 COPY gradle /app/gradle/
+RUN chmod +x gradlew
 
 # 의존성 다운로드 (캐시 최적화)
 RUN ./gradlew dependencies --no-daemon
