@@ -1,0 +1,138 @@
+pipeline {
+    agent any
+
+    environment {
+        NEXUS_HOST = 'host.docker.internal:8081'
+        NEXUS_REPO = 'raw-hosted'
+        CREDENTIALS_ID = 'nexus-creds'
+        APP_NAME = 'myapp'
+    }
+
+    triggers {
+        pollSCM('H/1 * * * *')
+    }
+
+    stages {
+        stage('📥 Checkout') {
+            steps {
+                echo "🔄 Git 저장소에서 소스코드 가져오기..."
+                git branch: 'master', url: 'https://github.com/Daegon7/docker.git'
+
+                script {
+                    // 안전한 방식으로 환경변수 설정
+                    env.GIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.IMAGE_TAG = "${BUILD_NUMBER}-${env.GIT_SHORT}"
+
+                    echo "✅ 설정 완료: IMAGE_TAG = ${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('🏗️ Docker Build') {
+            steps {
+                echo "🐳 Docker 이미지 빌드 중..."
+                sh """
+                    docker build -t ${APP_NAME}:${IMAGE_TAG} .
+                    docker build -t ${APP_NAME}:latest .
+                    echo "✅ 빌드 완료: ${APP_NAME}:${IMAGE_TAG}"
+                """
+            }
+        }
+
+        stage('📦 Package') {
+            steps {
+                echo "📦 Docker 이미지를 tar 파일로 패키징..."
+                sh """
+                    docker save ${APP_NAME}:${IMAGE_TAG} -o ${APP_NAME}-${IMAGE_TAG}.tar
+                    docker save ${APP_NAME}:latest -o ${APP_NAME}-latest.tar
+                    ls -lh ${APP_NAME}-*.tar
+                    echo "✅ 패키징 완료"
+                """
+            }
+        }
+
+        stage('☁️ Upload to Nexus') {
+            steps {
+                echo "☁️ Nexus Repository에 업로드 중..."
+                withCredentials([usernamePassword(
+                    credentialsId: "${CREDENTIALS_ID}",
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh """
+                        echo "=== Nexus 연결 테스트 ==="
+                        curl -u \$NEXUS_USER:\$NEXUS_PASS -f "${NEXUS_HOST}/service/rest/v1/status" && echo "✅ 연결 성공"
+
+                        echo "=== 이미지 업로드 ==="
+                        curl -u \$NEXUS_USER:\$NEXUS_PASS \\
+                             --upload-file ${APP_NAME}-${IMAGE_TAG}.tar \\
+                             "${NEXUS_HOST}/repository/${NEXUS_REPO}/docker-images/${APP_NAME}/${APP_NAME}-${IMAGE_TAG}.tar"
+
+                        curl -u \$NEXUS_USER:\$NEXUS_PASS \\
+                             --upload-file ${APP_NAME}-latest.tar \\
+                             "${NEXUS_HOST}/repository/${NEXUS_REPO}/docker-images/${APP_NAME}/${APP_NAME}-latest.tar"
+
+                        echo "✅ Nexus 업로드 완료!"
+                    """
+                }
+            }
+        }
+
+        stage('📊 Summary') {
+            steps {
+                script {
+                    echo """
+                    🎉 빌드 성공 요약:
+
+                    📦 프로젝트: ${APP_NAME}
+                    🔢 빌드 번호: ${BUILD_NUMBER}
+                    🏷️ 이미지 태그: ${env.IMAGE_TAG}
+                    📅 빌드 시간: ${new Date()}
+
+                    🔗 Nexus: ${NEXUS_HOST}/#browse/browse:${NEXUS_REPO}
+                    📁 경로: docker-images/${APP_NAME}/
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                try {
+                    sh """
+                        echo "🧹 정리 작업..."
+                        rm -f ${APP_NAME}-*.tar || true
+                        docker system prune -f || true
+                        echo "✅ 정리 완료"
+                    """
+                } catch (Exception e) {
+                    echo "⚠️ 정리 중 오류: ${e.getMessage()}"
+                }
+            }
+        }
+
+        success {
+            echo """
+            🎉 파이프라인 성공!
+
+            ✅ 모든 단계 완료
+            📦 Docker 이미지가 Nexus에 저장됨
+            🔗 ${NEXUS_HOST}에서 확인 가능
+            """
+        }
+
+        failure {
+            echo """
+            💥 파이프라인 실패!
+
+            📋 확인사항:
+            1. Docker 서비스 상태
+            2. Nexus 연결 상태
+            3. Git 저장소 접근 권한
+            4. 자격증명 설정 (nexus-creds)
+            """
+        }
+    }
+}

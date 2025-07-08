@@ -1,0 +1,53 @@
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME     = 'myapp'
+    IMAGE_TAG      = '1.0.0'
+    NEXUS_HOST     = 'localhost:8082'                    // Nexus Registry 호스트 + 포트
+    NEXUS_REPO     = 'docker-hosted'                     // Nexus에서 만든 Docker 형식 저장소 이름
+    DOCKER_REGISTRY= "${NEXUS_HOST}/${NEXUS_REPO}"       // Registry 접두 경로
+    FULL_IMAGE_TAG = "${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+    CREDENTIALS_ID = 'nexus-creds'                       // Jenkins에 등록한 Nexus 로그인 자격증명 ID
+  }
+
+  stages {
+    stage('Clone Source') {
+      steps {
+        git 'https://github.com/Daegon7/docker.git'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+      }
+    }
+
+    stage('Tag Image') {
+      steps {
+        sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${FULL_IMAGE_TAG}"
+      }
+    }
+
+    stage('Login to Nexus Registry') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: "${CREDENTIALS_ID}", usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
+          sh "echo ${NEXUS_PASS} | docker login ${NEXUS_HOST} -u ${NEXUS_USER} --password-stdin"
+        }
+      }
+    }
+
+    stage('Push to Nexus') {
+      steps {
+        sh "docker push ${FULL_IMAGE_TAG}"
+      }
+    }
+  }
+
+  post {
+    always {
+      echo "🎯 Pipeline finished: Nexus Push attempted for ${FULL_IMAGE_TAG}"
+    }
+  }
+}
